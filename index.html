@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>GPS til kort - Flere brugere</title>
+  <title>Her eri eg, hvar ert tú?</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     #map { height: 400px; width: 100%; }
@@ -10,10 +10,11 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 </head>
 <body>
-  <h2>Live positioner på kort</h2>
+  <h2>Her eri eg</h2>
   <div id="userbox">
-    Brugernavn: <input id="username" placeholder="Skriv dit navn" />
+    Brugernavn: <input id="username" placeholder="Navn:" />
     <button onclick="startTracking()">Start</button>
+    <button id="logout" onclick="logout()" style="display:none;">Log ud</button>
   </div>
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -43,6 +44,8 @@
 
     let userMarker = null;
     let otherMarkers = {};
+    let watchId = null;
+    let currentUsername = null;
 
     function startTracking() {
       const username = document.getElementById('username').value.trim();
@@ -50,10 +53,12 @@
         alert("Skriv dit navn!");
         return;
       }
-      document.getElementById('userbox').style.display = 'none';
+      currentUsername = username;
+      document.getElementById('userbox').style.display = '';
+      document.getElementById('logout').style.display = 'inline';
 
       if ("geolocation" in navigator) {
-        navigator.geolocation.watchPosition(function(pos) {
+        watchId = navigator.geolocation.watchPosition(function(pos) {
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
           // Sæt/Opdater din egen markør
@@ -74,7 +79,19 @@
           alert("Kan ikke hente position: " + e.message);
         }, {enableHighAccuracy:true});
       } else {
-        alert("Din browser/Iphone understøtter ikke GPS");
+        alert("Ergtiligt/Telefonin brúkar ikki GPS");
+      }
+      // Vis brugernavn-feltet som readonly
+      document.getElementById('username').readOnly = true;
+      document.querySelector('[onclick="startTracking()"]').style.display = 'none';
+    }
+
+    function logout() {
+      if (currentUsername) {
+        db.ref('positions/' + currentUsername).remove();
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        alert("Du er logget ud og din position er slettet.");
+        location.reload(); // Genindlæs siden
       }
     }
 
@@ -89,9 +106,20 @@
         }
       }
       if (positions) {
+        const now = Date.now();
         for (let name in positions) {
-          const {lat, lng} = positions[name];
-          if (name === document.getElementById('username').value) continue; // undgå dobbelt
+          const {lat, lng, timestamp} = positions[name];
+          // Skjul positioner ældre end 30 sekunder (auto-clean)
+          if (now - timestamp > 30000) {
+            // Slet fra Firebase (kan undlades hvis du kun vil skjule)
+            db.ref('positions/' + name).remove();
+            if (otherMarkers[name]) {
+              map.removeLayer(otherMarkers[name]);
+              delete otherMarkers[name];
+            }
+            continue;
+          }
+          if (name === currentUsername) continue; // undgå dobbelt
           if (!otherMarkers[name]) {
             otherMarkers[name] = L.marker([lat, lng]).addTo(map).bindPopup(name);
           } else {
@@ -99,6 +127,11 @@
           }
         }
       }
+    });
+
+    // Hvis siden lukkes, fjern brugerens position fra Firebase
+    window.addEventListener('beforeunload', function() {
+      if (currentUsername) db.ref('positions/' + currentUsername).remove();
     });
   </script>
 </body>
