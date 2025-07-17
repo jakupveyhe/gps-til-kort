@@ -1,413 +1,273 @@
 <!DOCTYPE html>
-
 <html>
-
 <head>
-
   <title>Her eri eg, kom og spæl.</title>
-
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
   <style>
-
     #map { height: 350px; width: 100%; }
-
-    #userbox, #chat { margin: 8px 0; }
-
-    #chatlog { height: 90px; overflow-y: scroll; border: 1px solid #9ac7af; padding: 5px; background: #f0fff9;}
-
+    #userbox { margin: 8px 0; }
+    #game, #kortvalg { margin: 10px 0; }
+    #kortvalg button { font-size: 1.5em; margin: 4px; }
+    #chat { display: none; }
     #status { margin: 8px 0; font-weight: bold; }
-
-    #chat {
-
-      position: absolute;
-
-      left: 0; right: 0; max-width: 400px; 
-
-      margin: 8px auto; top: 20px; z-index: 9999;
-
-      background: #e5f1ea; border-radius:12px; 
-
-      padding: 6px 8px; box-shadow: 0 2px 6px #0001;
-
-      border: 1px solid #9ac7af;
-
-    }
-
     .leaflet-popup-content-wrapper {
-
       background: #f6fff2;
-
       border-radius: 8px;
-
       font-size: 15px;
-
       color: #243a1f;
-
     }
-
+    #sorteperlabel {
+      background: #faecec;
+      color: #a22222;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-weight: bold;
+      display: inline-block;
+      margin: 6px 0;
+      border: 1px solid #f44;
+    }
   </style>
-
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-
 </head>
-
 <body>
-
   <h2>Kom og spæl</h2>
-
   <div id="userbox">
-
     Navn: <input id="username" placeholder="Navn:" />
-
     <button onclick="startTracking()">Byrja</button>
-
     <button id="logout" onclick="logout()" style="display:none;">Ganga út</button>
-
   </div>
-
   <div id="status"></div>
-
   <div id="map"></div>
-
-  
-
-  <!-- Chat boble over kortet -->
-
-  <div id="chat">
-
-    <div id="chatlog"></div>
-
-    <input id="msg" placeholder="Skriva boð..." style="width:65%;">
-
-    <button onclick="sendMsg()">Send</button>
-
+  <div id="game"></div>
+  <div id="kortvalg" style="display:none;">
+    <b>Vel eitt kort!</b><br>
+    <button onclick="pickCard(0)">Kort 1</button>
+    <button onclick="pickCard(1)">Kort 2</button>
+    <button onclick="pickCard(2)">Kort 3</button>
   </div>
-
-
+  <div id="sorteperlabel" style="display:none;"></div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
   <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
-
   <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
-
   <script>
-
     // Firebase-konfiguratión
-
     const firebaseConfig = {
-
       apiKey: "AIzaSyBm6TiqdDAbVwAgYKOaIaDU4uXcTk8h2XU",
-
       authDomain: "hererieg.firebaseapp.com",
-
       databaseURL: "https://hererieg-default-rtdb.europe-west1.firebasedatabase.app",
-
       projectId: "hererieg",
-
       storageBucket: "hererieg.firebasestorage.app",
-
       messagingSenderId: "3365578067",
-
       appId: "1:3365578067:web:d0c8304ee5d1ac5c1feda6",
-
       measurementId: "G-R9QE68V01H"
-
     };
-
     firebase.initializeApp(firebaseConfig);
-
     const db = firebase.database();
 
-
-
     let map = L.map('map').setView([62, -6], 8);
-
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-
       attribution: '© OpenStreetMap'
-
     }).addTo(map);
 
-
-
     let userMarker = null, otherMarkers = {}, watchId = null, currentUsername = null;
-
-    const proximity = 20; // 20 metrar!
-
+    const proximity = 20;
     const statusEl = document.getElementById('status');
+    const gameDiv = document.getElementById('game');
+    const kortvalgDiv = document.getElementById('kortvalg');
+    const sortePerLabel = document.getElementById('sorteperlabel');
+    let gameActive = false, pickedCard = false;
 
-
-
-    // Haversine til at máta frástøðu
-
+    // --- GPS/position logic as before ---
     function getDistance(lat1, lng1, lat2, lng2) {
-
       function toRad(x) { return x * Math.PI / 180; }
-
       const R = 6371000;
-
       const dLat = toRad(lat2-lat1);
-
       const dLon = toRad(lng2-lng1);
-
       const a = Math.sin(dLat/2)*Math.sin(dLat/2) +
-
                 Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
-
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
       return R * c;
-
     }
-
-
 
     function startTracking() {
-
       const username = document.getElementById('username').value.trim();
-
-      if (!username) {
-
-        alert("Vinarliga skriva navn!");
-
-        return;
-
-      }
-
+      if (!username) { alert("Vinarliga skriva navn!"); return; }
       currentUsername = username;
-
       document.getElementById('userbox').style.display = '';
-
       document.getElementById('logout').style.display = 'inline';
-
       document.getElementById('username').readOnly = true;
-
       document.querySelector('[onclick="startTracking()"]')?.style.setProperty('display','none');
 
-
-
       if ("geolocation" in navigator) {
-
         watchId = navigator.geolocation.watchPosition(function(pos) {
-
           const lat = pos.coords.latitude, lng = pos.coords.longitude;
-
           if (userMarker) userMarker.setLatLng([lat, lng]);
-
           else {
-
             userMarker = L.marker([lat, lng], {color: 'red'}).addTo(map)
-
               .bindPopup("Tú (" + username + ")").openPopup();
-
             map.setView([lat, lng], 15);
-
           }
-
           db.ref('positions/' + username).set({
-
             lat: lat,
-
             lng: lng,
-
             timestamp: Date.now()
-
           });
-
         }, function(e) {
-
           alert("Fek ikki staðseting: " + e.message);
-
         }, {enableHighAccuracy:true});
-
       } else {
-
         alert("Títt tól stuðlar ikki GPS");
-
       }
-
     }
-
-
 
     function logout() {
-
       if (currentUsername) {
-
         db.ref('positions/' + currentUsername).remove();
-
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-
+        db.ref('game/current').remove();
         alert("Tú ert farin út og tín staðseting er strikað.");
-
         location.reload();
-
       }
-
     }
-
-
 
     // VIS positionir + proximity-tjek
-
+    let nærleikabrúkarar = [];
     db.ref('positions').on('value', function(snapshot) {
-
       const positions = snapshot.val();
-
+      nærleikabrúkarar = [];
       for (let name in otherMarkers) {
-
         if (!positions || !positions[name]) {
-
           map.removeLayer(otherMarkers[name]);
-
           delete otherMarkers[name];
-
         }
-
       }
-
       let close = false;
-
       if (positions) {
-
         const now = Date.now();
-
         let myPos = userMarker ? userMarker.getLatLng() : null;
-
         for (let name in positions) {
-
           const {lat, lng, timestamp} = positions[name];
-
           if (now - timestamp > 30000) {
-
             db.ref('positions/' + name).remove();
-
             if (otherMarkers[name]) {
-
               map.removeLayer(otherMarkers[name]);
-
               delete otherMarkers[name];
-
             }
-
             continue;
-
           }
-
           if (name === currentUsername) continue;
-
-          // Marker for onnur
-
           if (!otherMarkers[name]) {
-
             otherMarkers[name] = L.marker([lat, lng]).addTo(map).bindPopup(name);
-
           } else {
-
             otherMarkers[name].setLatLng([lat, lng]);
-
           }
-
-          // Tætheds-tjek fyri onnur
-
-          if (myPos) {
-
-            const dist = getDistance(myPos.lat, myPos.lng, lat, lng);
-
-            if (dist < proximity) close = true;
-
+          if (myPos && getDistance(myPos.lat, myPos.lng, lat, lng) < proximity) {
+            close = true;
+            nærleikabrúkarar.push(name);
           }
-
         }
-
       }
-
+      // Vís status og aktiver spil-knap hvis muligt
       if (close) {
-
         statusEl.textContent = "Tit eru nær! (minni enn 20 metrar)";
-
         statusEl.style.color = "green";
-
+        if (!gameActive) visSpilKnap();
       } else {
-
         statusEl.textContent = "Tit eru ikki tætt enn ...";
-
         statusEl.style.color = "red";
-
+        gameDiv.innerHTML = "";
+        kortvalgDiv.style.display = "none";
+        sortePerLabel.style.display = "none";
+        gameActive = false;
+        pickedCard = false;
       }
-
     });
 
-
-
-    window.addEventListener('beforeunload', function() {
-
-      if (currentUsername) db.ref('positions/' + currentUsername).remove();
-
-    });
-
-
-
-    // --- CHAT (ovast, sum 'boble' yvir kortinum) ---
-
-    function sendMsg() {
-
-      const msg = document.getElementById('msg').value.trim();
-
-      if (!msg || !currentUsername) return;
-
-      db.ref('chat').push({
-
-        user: currentUsername,
-
-        text: msg,
-
-        ts: Date.now()
-
-      });
-
-      document.getElementById('msg').value = "";
-
+    function visSpilKnap() {
+      gameDiv.innerHTML = `<button onclick="startGame()" style="font-size:1.1em;padding:6px 16px;">Spæl 'Svarti Pætur'</button>`;
     }
 
-
-
-    db.ref('chat').limitToLast(25).on('value', function(snapshot) {
-
-      const chatlog = document.getElementById('chatlog');
-
-      let txt = "";
-
-      const data = snapshot.val();
-
-      if (data) {
-
-        Object.values(data).forEach(msg => {
-
-          const t = new Date(msg.ts).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-
-          txt += `<b>${msg.user}</b> <span style="color:#999;">${t}</span>: ${msg.text}<br>`;
-
-        });
-
+    // --- Sorte Per spil ---
+    function startGame() {
+      if (gameActive) return;
+      const all = [currentUsername, ...nærleikabrúkarar];
+      if (all.length < 2) {
+        alert("Fleiri skulu vera nær fyri at spæla!");
+        return;
       }
+      // Shuffle players og lav kort-array (1 sorteper = 1, resten = 0)
+      const mixed = all.sort(() => 0.5 - Math.random());
+      const sortePerIx = Math.floor(Math.random() * mixed.length);
+      const fordeling = mixed.map((n,ix) => ({navn: n, sortePer: ix === sortePerIx}));
+      // Gem i db, alle kan se det
+      db.ref('game/current').set({players: fordeling, runde: Date.now()});
+      gameActive = true;
+      pickedCard = false;
+      gameDiv.innerHTML = "";
+      kortvalgDiv.style.display = "block";
+      sortePerLabel.style.display = "none";
+    }
 
-      chatlog.innerHTML = txt;
+    // En spiller vælger et kort (0,1,2,...)
+    function pickCard(ix) {
+      pickedCard = true;
+      kortvalgDiv.style.display = "none";
+      document.getElementById('status').textContent = "Bíð ... Øll skulu velja.";
+      // Markér i db, at du har valgt
+      db.ref(`game/current/picks/${currentUsername}`).set(ix);
+    }
 
-      chatlog.scrollTop = chatlog.scrollHeight;
+    // Overvåg spiltilstand i realtime
+    db.ref('game/current').on('value', function(snapshot) {
+      const data = snapshot.val();
+      if (!data || !data.players) {
+        kortvalgDiv.style.display = "none";
+        sortePerLabel.style.display = "none";
+        gameActive = false; pickedCard = false;
+        return;
+      }
+      // Find din rolle
+      let minRolle = null, sortePerNavn = null;
+      data.players.forEach(p => {
+        if (p.sortePer) sortePerNavn = p.navn;
+        if (p.navn === currentUsername) minRolle = p;
+      });
 
+      // Hvem har valgt? Vis info
+      const picks = (data.picks) ? Object.keys(data.picks) : [];
+      if (!pickedCard && minRolle) {
+        // Vis kun knapper hvis man ikke har valgt endnu
+        kortvalgDiv.style.display = "block";
+        sortePerLabel.style.display = "none";
+      } else {
+        kortvalgDiv.style.display = "none";
+      }
+      // Når ALLE har valgt, vis hvem der er Sorte Per
+      if (picks.length >= data.players.length) {
+        if (minRolle && minRolle.sortePer) {
+          sortePerLabel.innerHTML = "Tú ert <b>Svarti Pætur!</b>";
+        } else {
+          sortePerLabel.innerHTML = `<b>${sortePerNavn}</b> er Svarti Pætur!`;
+        }
+        sortePerLabel.style.display = "block";
+        document.getElementById('status').textContent = "Spæl liðugt! Roynið aftur!";
+      }
+      // Pop-up på kortet for Sorte Per
+      for (let navn in otherMarkers) {
+        if (navn === sortePerNavn && picks.length >= data.players.length) {
+          otherMarkers[navn].bindPopup("Svarti Pætur!").openPopup();
+        }
+      }
+      if (userMarker && minRolle && minRolle.sortePer && picks.length >= data.players.length) {
+        userMarker.bindPopup("Tú ert Svarti Pætur!").openPopup();
+      }
     });
 
-    document.getElementById('msg').addEventListener('keyup', function(e) {
-
-      if (e.key === "Enter") sendMsg();
-
+    window.addEventListener('beforeunload', function() {
+      if (currentUsername) db.ref('positions/' + currentUsername).remove();
+      db.ref('game/current').remove();
     });
-
   </script>
-
 </body>
-
 </html>
