@@ -8,7 +8,6 @@
     #userbox { margin: 8px 0; }
     #game, #kortvalg { margin: 10px 0; }
     #kortvalg button { font-size: 1.5em; margin: 4px; }
-    #chat { display: none; }
     #status { margin: 8px 0; font-weight: bold; }
     .leaflet-popup-content-wrapper {
       background: #f6fff2;
@@ -26,6 +25,29 @@
       margin: 6px 0;
       border: 1px solid #f44;
     }
+    #chatbox {
+      max-width: 350px;
+      background: #e5f1ea;
+      border-radius: 10px;
+      padding: 6px 10px;
+      margin: 10px auto;
+      box-shadow: 0 2px 6px #0001;
+      border: 1px solid #9ac7af;
+      display: none;
+    }
+    #chatlog {
+      height: 90px;
+      overflow-y: scroll;
+      border: 1px solid #9ac7af;
+      padding: 5px;
+      background: #f0fff9;
+      margin-bottom: 3px;
+      font-size: 0.98em;
+    }
+    #skiftanavn {
+      margin-left: 10px;
+      font-size: 0.97em;
+    }
   </style>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 </head>
@@ -33,8 +55,9 @@
   <h2>Kom og spæl</h2>
   <div id="userbox">
     Navn: <input id="username" placeholder="Navn:" />
-    <button onclick="startTracking()">Slepp mær inn</button>
+    <button onclick="startTracking()" id="startbtn">Slepp mær inn</button>
     <button id="logout" onclick="logout()" style="display:none;">Slepp mær avstað!</button>
+    <button id="skiftanavn" onclick="skiftaNavn()" style="display:none;">Skifta navn</button>
   </div>
   <div id="status"></div>
   <div id="map"></div>
@@ -46,6 +69,16 @@
     <button onclick="pickCard(2)">Kort 3</button>
   </div>
   <div id="sorteperlabel" style="display:none;"></div>
+
+  <!-- Privat chat -->
+  <div id="chatbox">
+    <div style="font-weight:bold; margin-bottom:2px;">
+      Boð millum teg og <span id="peername">(eingin nær)</span>:
+    </div>
+    <div id="chatlog"></div>
+    <input id="msg" placeholder="Skriva boð..." style="width:66%;" autocomplete="off">
+    <button onclick="sendMsg()">Send</button>
+  </div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
@@ -71,33 +104,38 @@
     }).addTo(map);
 
     let userMarker = null, otherMarkers = {}, watchId = null, currentUsername = null;
+    let nærleikabrúkarar = [], currentPeer = null, pickedCard = false, gameActive = false;
     const proximity = 20;
     const statusEl = document.getElementById('status');
     const gameDiv = document.getElementById('game');
     const kortvalgDiv = document.getElementById('kortvalg');
     const sortePerLabel = document.getElementById('sorteperlabel');
-    let gameActive = false, pickedCard = false;
+    const chatBox = document.getElementById('chatbox');
+    const peerNameEl = document.getElementById('peername');
+    const msgInput = document.getElementById('msg');
+    const chatlog = document.getElementById('chatlog');
+    const skiftanavnBtn = document.getElementById('skiftanavn');
+    const logoutBtn = document.getElementById('logout');
+    const usernameInput = document.getElementById('username');
+    const startBtn = document.getElementById('startbtn');
 
-    // --- GPS/position logic as before ---
-    function getDistance(lat1, lng1, lat2, lng2) {
-      function toRad(x) { return x * Math.PI / 180; }
-      const R = 6371000;
-      const dLat = toRad(lat2-lat1);
-      const dLon = toRad(lng2-lng1);
-      const a = Math.sin(dLat/2)*Math.sin(dLat/2) +
-                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      return R * c;
+    // Prøv auto-login
+    if (localStorage.getItem('svartibolli_navn')) {
+      usernameInput.value = localStorage.getItem('svartibolli_navn');
+      setTimeout(startTracking, 100);
     }
 
     function startTracking() {
-      const username = document.getElementById('username').value.trim();
+      const username = usernameInput.value.trim();
       if (!username) { alert("Tú eitur?!"); return; }
       currentUsername = username;
+      localStorage.setItem('svartibolli_navn', username);
+
       document.getElementById('userbox').style.display = '';
-      document.getElementById('logout').style.display = 'inline';
-      document.getElementById('username').readOnly = true;
-      document.querySelector('[onclick="startTracking()"]')?.style.setProperty('display','none');
+      logoutBtn.style.display = 'inline';
+      skiftanavnBtn.style.display = 'inline';
+      usernameInput.readOnly = true;
+      startBtn.style.display = 'none';
 
       if ("geolocation" in navigator) {
         watchId = navigator.geolocation.watchPosition(function(pos) {
@@ -119,6 +157,7 @@
       } else {
         alert("GPS og tú eru ein ring kombinatión");
       }
+      updateChat();
     }
 
     function logout() {
@@ -126,13 +165,20 @@
         db.ref('positions/' + currentUsername).remove();
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
         db.ref('game/current').remove();
+        localStorage.removeItem('svartibolli_navn');
         alert("Tú ert farin avstað og tín staðseting er strikað.");
         location.reload();
       }
     }
 
+    function skiftaNavn() {
+      if (confirm("Ert tú vísur í at tú vilt skifta navn?")) {
+        localStorage.removeItem('svartibolli_navn');
+        logout();
+      }
+    }
+
     // VIS positionir + proximity-tjek
-    let nærleikabrúkarar = [];
     db.ref('positions').on('value', function(snapshot) {
       const positions = snapshot.val();
       nærleikabrúkarar = [];
@@ -142,10 +188,10 @@
           delete otherMarkers[name];
         }
       }
-      let close = false;
+      let close = false, nearest = null, minDist = Infinity;
+      let myPos = userMarker ? userMarker.getLatLng() : null;
       if (positions) {
         const now = Date.now();
-        let myPos = userMarker ? userMarker.getLatLng() : null;
         for (let name in positions) {
           const {lat, lng, timestamp} = positions[name];
           if (now - timestamp > 30000) {
@@ -162,17 +208,21 @@
           } else {
             otherMarkers[name].setLatLng([lat, lng]);
           }
-          if (myPos && getDistance(myPos.lat, myPos.lng, lat, lng) < proximity) {
-            close = true;
-            nærleikabrúkarar.push(name);
+          if (myPos) {
+            const dist = getDistance(myPos.lat, myPos.lng, lat, lng);
+            if (dist < proximity) nærleikabrúkarar.push(name);
+            if (dist < minDist) { minDist = dist; nearest = name; }
           }
         }
       }
       // Vís status og aktiver spil-knap hvis muligt
-      if (close) {
+      if (nærleikabrúkarar.length > 0) {
         statusEl.textContent = "Tit eru nær! (minni enn 20 metrar)";
         statusEl.style.color = "green";
         if (!gameActive) visSpilKnap();
+        currentPeer = nearest;
+        peerNameEl.textContent = currentPeer || '(eingin nær)';
+        chatBox.style.display = currentPeer ? 'block' : 'none';
       } else {
         statusEl.textContent = "Tit eru ikki nóg tætt enn ...";
         statusEl.style.color = "red";
@@ -181,7 +231,11 @@
         sortePerLabel.style.display = "none";
         gameActive = false;
         pickedCard = false;
+        currentPeer = null;
+        peerNameEl.textContent = '(eingin nær)';
+        chatBox.style.display = 'none';
       }
+      updateChat();
     });
 
     function visSpilKnap() {
@@ -196,11 +250,9 @@
         alert("Fleiri skulu vera nær fyri at spæla!");
         return;
       }
-      // Shuffle players og lav kort-array (1 sorteper = 1, resten = 0)
       const mixed = all.sort(() => 0.5 - Math.random());
       const sortePerIx = Math.floor(Math.random() * mixed.length);
       const fordeling = mixed.map((n,ix) => ({navn: n, sortePer: ix === sortePerIx}));
-      // Gem i db, alle kan se det
       db.ref('game/current').set({players: fordeling, runde: Date.now()});
       gameActive = true;
       pickedCard = false;
@@ -209,16 +261,13 @@
       sortePerLabel.style.display = "none";
     }
 
-    // En spiller vælger et kort (0,1,2,...)
     function pickCard(ix) {
       pickedCard = true;
       kortvalgDiv.style.display = "none";
-      document.getElementById('status').textContent = "Bíða til øll hava valt.";
-      // Markér i db, at du har valgt
+      statusEl.textContent = "Bíða til øll hava valt.";
       db.ref(`game/current/picks/${currentUsername}`).set(ix);
     }
 
-    // Overvåg spiltilstand i realtime
     db.ref('game/current').on('value', function(snapshot) {
       const data = snapshot.val();
       if (!data || !data.players) {
@@ -227,23 +276,19 @@
         gameActive = false; pickedCard = false;
         return;
       }
-      // Find din rolle
       let minRolle = null, sortePerNavn = null;
       data.players.forEach(p => {
         if (p.sortePer) sortePerNavn = p.navn;
         if (p.navn === currentUsername) minRolle = p;
       });
 
-      // Hvem har valgt? Vis info
       const picks = (data.picks) ? Object.keys(data.picks) : [];
       if (!pickedCard && minRolle) {
-        // Vis kun knapper hvis man ikke har valgt endnu
         kortvalgDiv.style.display = "block";
         sortePerLabel.style.display = "none";
       } else {
         kortvalgDiv.style.display = "none";
       }
-      // Når ALLE har valgt, vis hvem der er Sorte Per
       if (picks.length >= data.players.length) {
         if (minRolle && minRolle.sortePer) {
           sortePerLabel.innerHTML = "Tú ert <b>Svartibolli!!</b>";
@@ -251,9 +296,8 @@
           sortePerLabel.innerHTML = `<b>${sortePerNavn}</b> er Svartibolli!`;
         }
         sortePerLabel.style.display = "block";
-        document.getElementById('status').textContent = "Spæl liðugt! Roynið aftur!";
+        statusEl.textContent = "Spæl liðugt! Roynið aftur!";
       }
-      // Pop-up på kortet for Sorte Per
       for (let navn in otherMarkers) {
         if (navn === sortePerNavn && picks.length >= data.players.length) {
           otherMarkers[navn].bindPopup("Svartibolli!").openPopup();
@@ -268,6 +312,60 @@
       if (currentUsername) db.ref('positions/' + currentUsername).remove();
       db.ref('game/current').remove();
     });
+
+    // ---------- Privat Chat ----------
+    function sendMsg() {
+      const txt = msgInput.value.trim();
+      if (!txt || !currentUsername || !currentPeer) return;
+      db.ref('chat').push({
+        from: currentUsername,
+        to: currentPeer,
+        text: txt,
+        ts: Date.now()
+      });
+      msgInput.value = "";
+    }
+
+    function updateChat() {
+      if (!currentUsername || !currentPeer) {
+        chatlog.innerHTML = "<i>Eingin nær at senda boð til ...</i>";
+        return;
+      }
+      db.ref('chat').limitToLast(50).on('value', function(snapshot) {
+        let txt = "";
+        const data = snapshot.val();
+        if (data) {
+          Object.values(data).forEach(msg => {
+            if (
+              (msg.from === currentUsername && msg.to === currentPeer) ||
+              (msg.from === currentPeer && msg.to === currentUsername)
+            ) {
+              const t = new Date(msg.ts).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+              txt += `<b>${msg.from}</b> <span style="color:#999;">${t}</span>: ${msg.text}<br>`;
+            }
+          });
+        }
+        if (!txt) txt = "<i>Eingin boð enn ...</i>";
+        chatlog.innerHTML = txt;
+        chatlog.scrollTop = chatlog.scrollHeight;
+      });
+    }
+
+    msgInput.addEventListener('keyup', function(e) {
+      if (e.key === "Enter") sendMsg();
+    });
+
+    // --- Distance calculation helper ---
+    function getDistance(lat1, lng1, lat2, lng2) {
+      function toRad(x) { return x * Math.PI / 180; }
+      const R = 6371000;
+      const dLat = toRad(lat2-lat1);
+      const dLon = toRad(lng2-lng1);
+      const a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
   </script>
 </body>
 </html>
