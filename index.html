@@ -1,42 +1,105 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <title>Her eri eg</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-      #map { height: 400px; width: 100%; }
-    </style>
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-  </head>
-  <body>
-    <h2>Her eri eg</h2>
-    <div id="map"></div>
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    <script>
-      // Lav kort
-      var map = L.map('map').setView([0, 0], 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
-      }).addTo(map);
+<head>
+  <title>GPS til kort - Flere brugere</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    #map { height: 400px; width: 100%; }
+    #userbox { margin: 8px 0; }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+</head>
+<body>
+  <h2>Live positioner på kort</h2>
+  <div id="userbox">
+    Brugernavn: <input id="username" placeholder="Skriv dit navn" />
+    <button onclick="startTracking()">Start</button>
+  </div>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- Firebase (compat version) -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
+  <script>
+    // Din Firebase-konfiguration
+    const firebaseConfig = {
+      apiKey: "AIzaSyBm6TiqdDAbVwAgYKOaIaDU4uXcTk8h2XU",
+      authDomain: "hererieg.firebaseapp.com",
+      databaseURL: "https://hererieg-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "hererieg",
+      storageBucket: "hererieg.firebasestorage.app",
+      messagingSenderId: "3365578067",
+      appId: "1:3365578067:web:d0c8304ee5d1ac5c1feda6",
+      measurementId: "G-R9QE68V01H"
+    };
 
-      function showPosition(pos) {
-        var lat = pos.coords.latitude;
-        var lng = pos.coords.longitude;
-        map.setView([lat, lng], 15);
-        L.marker([lat, lng]).addTo(map)
-          .bindPopup("Her eri eg!").openPopup();
-      }
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
 
-      function errorHandler(e) {
-        alert("Finni ikki útav tí: " + e.message);
+    let map = L.map('map').setView([62, -6], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    let userMarker = null;
+    let otherMarkers = {};
+
+    function startTracking() {
+      const username = document.getElementById('username').value.trim();
+      if (!username) {
+        alert("Skriv dit navn!");
+        return;
       }
+      document.getElementById('userbox').style.display = 'none';
 
       if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(showPosition, errorHandler);
+        navigator.geolocation.watchPosition(function(pos) {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          // Sæt/Opdater din egen markør
+          if (userMarker) {
+            userMarker.setLatLng([lat, lng]);
+          } else {
+            userMarker = L.marker([lat, lng], {color: 'red'}).addTo(map)
+              .bindPopup("Du (" + username + ")").openPopup();
+            map.setView([lat, lng], 15);
+          }
+          // Gem position til Firebase
+          db.ref('positions/' + username).set({
+            lat: lat,
+            lng: lng,
+            timestamp: Date.now()
+          });
+        }, function(e) {
+          alert("Kan ikke hente position: " + e.message);
+        }, {enableHighAccuracy:true});
       } else {
-        alert("Stakkalin/telefonin hevur ikki GPS");
+        alert("Din browser/Iphone understøtter ikke GPS");
       }
-    </script>
-  </body>
+    }
+
+    // Lyt til andres positioner og vis på kortet
+    db.ref('positions').on('value', function(snapshot) {
+      const positions = snapshot.val();
+      // Fjern gamle markører
+      for (let name in otherMarkers) {
+        if (!positions || !positions[name]) {
+          map.removeLayer(otherMarkers[name]);
+          delete otherMarkers[name];
+        }
+      }
+      if (positions) {
+        for (let name in positions) {
+          const {lat, lng} = positions[name];
+          if (name === document.getElementById('username').value) continue; // undgå dobbelt
+          if (!otherMarkers[name]) {
+            otherMarkers[name] = L.marker([lat, lng]).addTo(map).bindPopup(name);
+          } else {
+            otherMarkers[name].setLatLng([lat, lng]);
+          }
+        }
+      }
+    });
+  </script>
+</body>
 </html>
