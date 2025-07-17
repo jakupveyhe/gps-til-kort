@@ -1,13 +1,23 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Her eri eg, kom og spæl.</title>
+  <title>Her eri eg.</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    #map { height: 350px; width: 100%; }
+    #map { width: 100%; }
+    @media (max-width: 700px) {
+      #map { height: 150px; }
+      #chatbox, #game, #userbox, #status, #kortvalg, #sorteperlabel {
+        font-size: 1em;
+        max-width: 98vw;
+      }
+    }
+    @media (min-width: 701px) {
+      #map { height: 350px; }
+    }
     #userbox { margin: 8px 0; }
     #game, #kortvalg { margin: 10px 0; }
-    #kortvalg button { font-size: 1.5em; margin: 4px; }
+    #kortvalg button { font-size: 1.2em; margin: 4px; }
     #status { margin: 8px 0; font-weight: bold; }
     .leaflet-popup-content-wrapper {
       background: #f6fff2;
@@ -30,10 +40,12 @@
       background: #e5f1ea;
       border-radius: 10px;
       padding: 6px 10px;
-      margin: 10px auto;
+      margin: 10px auto 10px auto;
       box-shadow: 0 2px 6px #0001;
       border: 1px solid #9ac7af;
       display: none;
+      position: static;
+      z-index: 9999;
     }
     #chatlog {
       height: 90px;
@@ -52,7 +64,16 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 </head>
 <body>
-  <h2>Kom og spæl</h2>
+  <div id="chatbox" style="margin-top:10px;">
+    <div style="font-weight:bold; margin-bottom:2px;">
+      Boð millum teg og <span id="peername">(eingin nær)</span>:
+    </div>
+    <div id="chatlog"></div>
+    <input id="msg" placeholder="Skriva boð..." style="width:66%;" autocomplete="off">
+    <button onclick="sendMsg()">Send</button>
+  </div>
+
+  <h2 style="margin-top:4px;">Her eri eg</h2>
   <div id="userbox">
     Navn: <input id="username" placeholder="Navn:" />
     <button onclick="startTracking()" id="startbtn">Slepp mær inn</button>
@@ -60,7 +81,6 @@
     <button id="skiftanavn" onclick="skiftaNavn()" style="display:none;">Skifta navn</button>
   </div>
   <div id="status"></div>
-  <div id="map"></div>
   <div id="game"></div>
   <div id="kortvalg" style="display:none;">
     <b>Vel eitt kort!</b><br>
@@ -69,16 +89,7 @@
     <button onclick="pickCard(2)">Kort 3</button>
   </div>
   <div id="sorteperlabel" style="display:none;"></div>
-
-  <!-- Privat chat -->
-  <div id="chatbox">
-    <div style="font-weight:bold; margin-bottom:2px;">
-      Boð millum teg og <span id="peername">(eingin nær)</span>:
-    </div>
-    <div id="chatlog"></div>
-    <input id="msg" placeholder="Skriva boð..." style="width:66%;" autocomplete="off">
-    <button onclick="sendMsg()">Send</button>
-  </div>
+  <div id="map"></div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
@@ -345,7 +356,7 @@
             }
           });
         }
-        if (!txt) txt = "<i>Eingin boð enn ...</i>";
+        if (!txt) txt = "<i>Eingi boð enn ...</i>";
         chatlog.innerHTML = txt;
         chatlog.scrollTop = chatlog.scrollHeight;
       });
