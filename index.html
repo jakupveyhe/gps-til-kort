@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Her eri eg</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      #map { height: 400px; width: 100%; }
+    </style>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  </head>
+  <body>
+    <h2>Her eri eg</h2>
+    <div id="map"></div>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+      // Lav kort
+      var map = L.map('map').setView([0, 0], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      }).addTo(map);
+
+      function showPosition(pos) {
+        var lat = pos.coords.latitude;
+        var lng = pos.coords.longitude;
+        map.setView([lat, lng], 15);
+        L.marker([lat, lng]).addTo(map)
+          .bindPopup("Du er her!").openPopup();
+      }
+
+      function errorHandler(e) {
+        alert("Finni ikki útav tí: " + e.message);
+      }
+
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(showPosition, errorHandler);
+      } else {
+        alert("Stakkalin/telefonin hevur ikki GPS");
+      }
+    </script>
+  </body>
+</html>
