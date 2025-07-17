@@ -1,24 +1,33 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Her eri eg, hvar ert tú?</title>
+  <title>Her eri eg, kom og spæl.</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    #map { height: 400px; width: 100%; }
-    #userbox { margin: 8px 0; }
+    #map { height: 350px; width: 100%; }
+    #userbox, #chat { margin: 8px 0; }
+    #chatlog { height: 120px; overflow-y: scroll; border: 1px solid #ccc; padding: 5px; background: #fafafa;}
+    #status { margin: 8px 0; font-weight: bold; }
   </style>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 </head>
 <body>
-  <h2>Her eri eg</h2>
+  <h2>Kom og spæl</h2>
   <div id="userbox">
-    Brugernavn: <input id="username" placeholder="Navn:" />
+    Navn: <input id="username" placeholder="Navn:" />
     <button onclick="startTracking()">Start</button>
     <button id="logout" onclick="logout()" style="display:none;">Log ud</button>
   </div>
+  <div id="status"></div>
   <div id="map"></div>
+  
+  <div id="chat">
+    <div id="chatlog"></div>
+    <input id="msg" placeholder="Skriv besked..." style="width:70%;">
+    <button onclick="sendMsg()">Send</button>
+  </div>
+
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <!-- Firebase (compat version) -->
   <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
   <script>
@@ -33,7 +42,6 @@
       appId: "1:3365578067:web:d0c8304ee5d1ac5c1feda6",
       measurementId: "G-R9QE68V01H"
     };
-
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
@@ -42,10 +50,21 @@
       attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    let userMarker = null;
-    let otherMarkers = {};
-    let watchId = null;
-    let currentUsername = null;
+    let userMarker = null, otherMarkers = {}, watchId = null, currentUsername = null;
+    const proximity = 10; // meter
+    const statusEl = document.getElementById('status');
+
+    // Haversine: afstand i meter mellem 2 punkter
+    function getDistance(lat1, lng1, lat2, lng2) {
+      function toRad(x) { return x * Math.PI / 180; }
+      const R = 6371000;
+      const dLat = toRad(lat2-lat1);
+      const dLon = toRad(lng2-lng1);
+      const a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
 
     function startTracking() {
       const username = document.getElementById('username').value.trim();
@@ -56,20 +75,18 @@
       currentUsername = username;
       document.getElementById('userbox').style.display = '';
       document.getElementById('logout').style.display = 'inline';
+      document.getElementById('username').readOnly = true;
+      document.querySelector('[onclick="startTracking()"]').style.display = 'none';
 
       if ("geolocation" in navigator) {
         watchId = navigator.geolocation.watchPosition(function(pos) {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          // Sæt/Opdater din egen markør
-          if (userMarker) {
-            userMarker.setLatLng([lat, lng]);
-          } else {
+          const lat = pos.coords.latitude, lng = pos.coords.longitude;
+          if (userMarker) userMarker.setLatLng([lat, lng]);
+          else {
             userMarker = L.marker([lat, lng], {color: 'red'}).addTo(map)
               .bindPopup("Du (" + username + ")").openPopup();
             map.setView([lat, lng], 15);
           }
-          // Gem position til Firebase
           db.ref('positions/' + username).set({
             lat: lat,
             lng: lng,
@@ -79,11 +96,8 @@
           alert("Kan ikke hente position: " + e.message);
         }, {enableHighAccuracy:true});
       } else {
-        alert("Ergtiligt/Telefonin brúkar ikki GPS");
+        alert("Din browser understøtter ikke GPS");
       }
-      // Vis brugernavn-feltet som readonly
-      document.getElementById('username').readOnly = true;
-      document.querySelector('[onclick="startTracking()"]').style.display = 'none';
     }
 
     function logout() {
@@ -91,11 +105,11 @@
         db.ref('positions/' + currentUsername).remove();
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
         alert("Du er logget ud og din position er slettet.");
-        location.reload(); // Genindlæs siden
+        location.reload();
       }
     }
 
-    // Lyt til andres positioner og vis på kortet
+    // VIS positioner + proximity-tjek
     db.ref('positions').on('value', function(snapshot) {
       const positions = snapshot.val();
       // Fjern gamle markører
@@ -105,13 +119,13 @@
           delete otherMarkers[name];
         }
       }
+      let close = false;
       if (positions) {
         const now = Date.now();
+        let myPos = userMarker ? userMarker.getLatLng() : null;
         for (let name in positions) {
           const {lat, lng, timestamp} = positions[name];
-          // Skjul positioner ældre end 30 sekunder (auto-clean)
           if (now - timestamp > 30000) {
-            // Slet fra Firebase (kan undlades hvis du kun vil skjule)
             db.ref('positions/' + name).remove();
             if (otherMarkers[name]) {
               map.removeLayer(otherMarkers[name]);
@@ -119,19 +133,63 @@
             }
             continue;
           }
-          if (name === currentUsername) continue; // undgå dobbelt
+          if (name === currentUsername) continue;
+          // Marker for andre
           if (!otherMarkers[name]) {
             otherMarkers[name] = L.marker([lat, lng]).addTo(map).bindPopup(name);
           } else {
             otherMarkers[name].setLatLng([lat, lng]);
           }
+          // Tætheds-tjek for de andre
+          if (myPos) {
+            const dist = getDistance(myPos.lat, myPos.lng, lat, lng);
+            if (dist < proximity) close = true;
+          }
         }
+      }
+      if (close) {
+        statusEl.textContent = "I er tæt nok på hinanden! (under 10 meter)";
+        statusEl.style.color = "green";
+      } else {
+        statusEl.textContent = "Ikke tæt nok på hinanden endnu...";
+        statusEl.style.color = "red";
       }
     });
 
-    // Hvis siden lukkes, fjern brugerens position fra Firebase
     window.addEventListener('beforeunload', function() {
       if (currentUsername) db.ref('positions/' + currentUsername).remove();
+    });
+
+    // --- CHAT ---
+    function sendMsg() {
+      const msg = document.getElementById('msg').value.trim();
+      if (!msg || !currentUsername) return;
+      db.ref('chat').push({
+        user: currentUsername,
+        text: msg,
+        ts: Date.now()
+      });
+      document.getElementById('msg').value = "";
+    }
+
+    // Vis chat
+    db.ref('chat').limitToLast(50).on('value', function(snapshot) {
+      const chatlog = document.getElementById('chatlog');
+      let txt = "";
+      const data = snapshot.val();
+      if (data) {
+        Object.values(data).forEach(msg => {
+          const t = new Date(msg.ts).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+          txt += `<b>${msg.user}</b> <span style="color:#999;">${t}</span>: ${msg.text}<br>`;
+        });
+      }
+      chatlog.innerHTML = txt;
+      chatlog.scrollTop = chatlog.scrollHeight;
+    });
+
+    // Send besked med Enter
+    document.getElementById('msg').addEventListener('keyup', function(e) {
+      if (e.key === "Enter") sendMsg();
     });
   </script>
 </body>
