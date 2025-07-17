@@ -33,8 +33,8 @@
   <h2>Kom og spæl</h2>
   <div id="userbox">
     Navn: <input id="username" placeholder="Navn:" />
-    <button onclick="startTracking()">Byrja</button>
-    <button id="logout" onclick="logout()" style="display:none;">Ganga út</button>
+    <button onclick="startTracking()">Slepp mær inn</button>
+    <button id="logout" onclick="logout()" style="display:none;">Slepp mær avstað!</button>
   </div>
   <div id="status"></div>
   <div id="map"></div>
@@ -92,7 +92,7 @@
 
     function startTracking() {
       const username = document.getElementById('username').value.trim();
-      if (!username) { alert("Vinarliga skriva navn!"); return; }
+      if (!username) { alert("Tú eitur?!"); return; }
       currentUsername = username;
       document.getElementById('userbox').style.display = '';
       document.getElementById('logout').style.display = 'inline';
@@ -114,10 +114,10 @@
             timestamp: Date.now()
           });
         }, function(e) {
-          alert("Fek ikki staðseting: " + e.message);
+          alert("Hetta gekk ikki: " + e.message);
         }, {enableHighAccuracy:true});
       } else {
-        alert("Títt tól stuðlar ikki GPS");
+        alert("GPS og tú eru ein ring kombinatión");
       }
     }
 
@@ -126,7 +126,7 @@
         db.ref('positions/' + currentUsername).remove();
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
         db.ref('game/current').remove();
-        alert("Tú ert farin út og tín staðseting er strikað.");
+        alert("Tú ert farin avstað og tín staðseting er strikað.");
         location.reload();
       }
     }
@@ -174,7 +174,7 @@
         statusEl.style.color = "green";
         if (!gameActive) visSpilKnap();
       } else {
-        statusEl.textContent = "Tit eru ikki tætt enn ...";
+        statusEl.textContent = "Tit eru ikki nóg tætt enn ...";
         statusEl.style.color = "red";
         gameDiv.innerHTML = "";
         kortvalgDiv.style.display = "none";
@@ -185,7 +185,7 @@
     });
 
     function visSpilKnap() {
-      gameDiv.innerHTML = `<button onclick="startGame()" style="font-size:1.1em;padding:6px 16px;">Spæl 'Svarti Pætur'</button>`;
+      gameDiv.innerHTML = `<button onclick="startGame()" style="font-size:1.1em;padding:6px 16px;">Spæl 'Hvør er Svartibolli?'</button>`;
     }
 
     // --- Sorte Per spil ---
@@ -213,7 +213,7 @@
     function pickCard(ix) {
       pickedCard = true;
       kortvalgDiv.style.display = "none";
-      document.getElementById('status').textContent = "Bíð ... Øll skulu velja.";
+      document.getElementById('status').textContent = "Bíða til øll hava valt.";
       // Markér i db, at du har valgt
       db.ref(`game/current/picks/${currentUsername}`).set(ix);
     }
@@ -246,9 +246,9 @@
       // Når ALLE har valgt, vis hvem der er Sorte Per
       if (picks.length >= data.players.length) {
         if (minRolle && minRolle.sortePer) {
-          sortePerLabel.innerHTML = "Tú ert <b>Svarti Pætur!</b>";
+          sortePerLabel.innerHTML = "Tú ert <b>Svartibolli!!</b>";
         } else {
-          sortePerLabel.innerHTML = `<b>${sortePerNavn}</b> er Svarti Pætur!`;
+          sortePerLabel.innerHTML = `<b>${sortePerNavn}</b> er Svartibolli!`;
         }
         sortePerLabel.style.display = "block";
         document.getElementById('status').textContent = "Spæl liðugt! Roynið aftur!";
@@ -256,11 +256,11 @@
       // Pop-up på kortet for Sorte Per
       for (let navn in otherMarkers) {
         if (navn === sortePerNavn && picks.length >= data.players.length) {
-          otherMarkers[navn].bindPopup("Svarti Pætur!").openPopup();
+          otherMarkers[navn].bindPopup("Svartibolli!").openPopup();
         }
       }
       if (userMarker && minRolle && minRolle.sortePer && picks.length >= data.players.length) {
-        userMarker.bindPopup("Tú ert Svarti Pætur!").openPopup();
+        userMarker.bindPopup("Tú ert Svartibolli!").openPopup();
       }
     });
 
